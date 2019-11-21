@@ -1,180 +1,138 @@
-// HostApp.cpp : Defines the entry point for the application.
-//
+#include <windows.h>
+#include <stdlib.h>
+#include <string.h>
 
-#include "framework.h"
-#include "HostApp.h"
+#include <winrt/Windows.system.h>
+#include <winrt/windows.ui.xaml.hosting.h>
+#include <windows.ui.xaml.hosting.desktopwindowxamlsource.h>
+#include <winrt/windows.ui.xaml.controls.h>
+#include <winrt/Windows.ui.xaml.media.h>
+#include <winrt/Windows.Foundation.Collections.h>
+#include <winrt/react.uwp.h>
 
-#define MAX_LOADSTRING 100
+using namespace winrt;
+using namespace Windows::UI;
+using namespace Windows::UI::Composition;
+using namespace Windows::UI::Xaml::Hosting;
+using namespace Windows::Foundation::Numerics;
 
-// Global Variables:
-HINSTANCE hInst;                                // current instance
-WCHAR szTitle[MAX_LOADSTRING];                  // The title bar text
-WCHAR szWindowClass[MAX_LOADSTRING];            // the main window class name
+LRESULT CALLBACK WindowProc(HWND, UINT, WPARAM, LPARAM);
 
-// Forward declarations of functions included in this code module:
-ATOM                MyRegisterClass(HINSTANCE hInstance);
-BOOL                InitInstance(HINSTANCE, int);
-LRESULT CALLBACK    WndProc(HWND, UINT, WPARAM, LPARAM);
-INT_PTR CALLBACK    About(HWND, UINT, WPARAM, LPARAM);
-
-int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
-                     _In_opt_ HINSTANCE hPrevInstance,
-                     _In_ LPWSTR    lpCmdLine,
-                     _In_ int       nCmdShow)
+int CALLBACK WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _In_ LPSTR lpCmdLine, _In_ int nCmdShow)
 {
-    UNREFERENCED_PARAMETER(hPrevInstance);
-    UNREFERENCED_PARAMETER(lpCmdLine);
+	// The main window class name.
+	const wchar_t szWindowClass[] = L"Win32DesktopApp";
+	WNDCLASSEX windowClass = { };
 
-    // TODO: Place code here.
+	windowClass.cbSize = sizeof(WNDCLASSEX);
+	windowClass.lpfnWndProc = WindowProc;
+	windowClass.hInstance = hInstance;
+	windowClass.lpszClassName = szWindowClass;
+	windowClass.hbrBackground = (HBRUSH) (COLOR_WINDOW + 1);
 
-    // Initialize global strings
-    LoadStringW(hInstance, IDS_APP_TITLE, szTitle, MAX_LOADSTRING);
-    LoadStringW(hInstance, IDC_HOSTAPP, szWindowClass, MAX_LOADSTRING);
-    MyRegisterClass(hInstance);
+	windowClass.hIconSm = LoadIcon(windowClass.hInstance, IDI_APPLICATION);
 
-    // Perform application initialization:
-    if (!InitInstance (hInstance, nCmdShow))
-    {
-        return FALSE;
-    }
+	if (RegisterClassEx(&windowClass) == NULL)
+	{
+		MessageBox(NULL, L"Windows registration failed!", L"Error", NULL);
+		return 0;
+	}
 
-    HACCEL hAccelTable = LoadAccelerators(hInstance, MAKEINTRESOURCE(IDC_HOSTAPP));
+	auto _hWnd = CreateWindow(
+		szWindowClass,
+		L"Windows Desktop App hosting React Native",
+		WS_OVERLAPPEDWINDOW | WS_VISIBLE,
+		CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT,
+		NULL,
+		NULL,
+		hInstance,
+		NULL
+	);
+	if (_hWnd == NULL)
+	{
+		MessageBox(NULL, L"Call to CreateWindow failed!", L"Error", NULL);
+		return 0;
+	}
 
-    MSG msg;
 
-    // Main message loop:
-    while (GetMessage(&msg, nullptr, 0, 0))
-    {
-        if (!TranslateAccelerator(msg.hwnd, hAccelTable, &msg))
-        {
-            TranslateMessage(&msg);
-            DispatchMessage(&msg);
-        }
-    }
+	//XAML Island section
 
-    return (int) msg.wParam;
+	// The call to winrt::init_apartment initializes COM; by default, in a multithreaded apartment.
+	winrt::init_apartment(apartment_type::single_threaded);
+
+	// Initialize the Xaml Framework's corewindow for current thread
+	WindowsXamlManager winxamlmanager = WindowsXamlManager::InitializeForCurrentThread();
+
+	// This DesktopWindowXamlSource is the object that enables a non-UWP desktop application 
+	// to host UWP controls in any UI element that is associated with a window handle (HWND).
+	DesktopWindowXamlSource desktopSource;
+	// Get handle to corewindow
+	auto interop = desktopSource.as<IDesktopWindowXamlSourceNative>();
+	// Parent the DesktopWindowXamlSource object to current window
+	check_hresult(interop->AttachToWindow(_hWnd));
+
+	// This Hwnd will be the window handler for the Xaml Island: A child window that contains Xaml.  
+	HWND hWndXamlIsland = nullptr;
+	// Get the new child window's hwnd 
+	interop->get_WindowHandle(&hWndXamlIsland);
+	// Update the xaml island window size becuase initially is 0,0
+	SetWindowPos(hWndXamlIsland, 0, 100, 100, 400, 400, SWP_SHOWWINDOW);
+
+	//Creating the Xaml content
+	Windows::UI::Xaml::Controls::StackPanel xamlContainer;
+	xamlContainer.Background(Windows::UI::Xaml::Media::SolidColorBrush { Windows::UI::Colors::LightGray() });
+
+	Windows::UI::Xaml::Controls::TextBlock tb;
+	tb.Text(L"Hello World from Xaml Islands!");
+	tb.VerticalAlignment(Windows::UI::Xaml::VerticalAlignment::Center);
+	tb.HorizontalAlignment(Windows::UI::Xaml::HorizontalAlignment::Center);
+	tb.FontSize(24);
+
+	xamlContainer.Children().Append(tb);
+	xamlContainer.UpdateLayout();
+
+	desktopSource.Content(xamlContainer);
+
+	//End XAML Island section
+
+	ShowWindow(_hWnd, nCmdShow);
+	UpdateWindow(_hWnd);
+
+	//Message loop:
+	MSG msg = { };
+	while (GetMessage(&msg, NULL, 0, 0))
+	{
+		TranslateMessage(&msg);
+		DispatchMessage(&msg);
+	}
+
+	return 0;
 }
 
-
-
-//
-//  FUNCTION: MyRegisterClass()
-//
-//  PURPOSE: Registers the window class.
-//
-ATOM MyRegisterClass(HINSTANCE hInstance)
+LRESULT CALLBACK WindowProc(HWND hWnd, UINT messageCode, WPARAM wParam, LPARAM lParam)
 {
-    WNDCLASSEXW wcex;
+	PAINTSTRUCT ps;
+	HDC hdc;
 
-    wcex.cbSize = sizeof(WNDCLASSEX);
+	switch (messageCode)
+	{
+		case WM_PAINT:
+			hdc = BeginPaint(hWnd, &ps);
+			EndPaint(hWnd, &ps);
+			break;
 
-    wcex.style          = CS_HREDRAW | CS_VREDRAW;
-    wcex.lpfnWndProc    = WndProc;
-    wcex.cbClsExtra     = 0;
-    wcex.cbWndExtra     = 0;
-    wcex.hInstance      = hInstance;
-    wcex.hIcon          = LoadIcon(hInstance, MAKEINTRESOURCE(IDI_HOSTAPP));
-    wcex.hCursor        = LoadCursor(nullptr, IDC_ARROW);
-    wcex.hbrBackground  = (HBRUSH)(COLOR_WINDOW+1);
-    wcex.lpszMenuName   = MAKEINTRESOURCEW(IDC_HOSTAPP);
-    wcex.lpszClassName  = szWindowClass;
-    wcex.hIconSm        = LoadIcon(wcex.hInstance, MAKEINTRESOURCE(IDI_SMALL));
+		case WM_DESTROY:
+			PostQuitMessage(0);
+			break;
 
-    return RegisterClassExW(&wcex);
+			return 0;
+
+			// Process other messages. 
+		default:
+			return DefWindowProc(hWnd, messageCode, wParam, lParam);
+			break;
+	}
+
+	return 0;
 }
 
-//
-//   FUNCTION: InitInstance(HINSTANCE, int)
-//
-//   PURPOSE: Saves instance handle and creates main window
-//
-//   COMMENTS:
-//
-//        In this function, we save the instance handle in a global variable and
-//        create and display the main program window.
-//
-BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
-{
-   hInst = hInstance; // Store instance handle in our global variable
-
-   HWND hWnd = CreateWindowW(szWindowClass, szTitle, WS_OVERLAPPEDWINDOW,
-      CW_USEDEFAULT, 0, CW_USEDEFAULT, 0, nullptr, nullptr, hInstance, nullptr);
-
-   if (!hWnd)
-   {
-      return FALSE;
-   }
-
-   ShowWindow(hWnd, nCmdShow);
-   UpdateWindow(hWnd);
-
-   return TRUE;
-}
-
-//
-//  FUNCTION: WndProc(HWND, UINT, WPARAM, LPARAM)
-//
-//  PURPOSE: Processes messages for the main window.
-//
-//  WM_COMMAND  - process the application menu
-//  WM_PAINT    - Paint the main window
-//  WM_DESTROY  - post a quit message and return
-//
-//
-LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
-{
-    switch (message)
-    {
-    case WM_COMMAND:
-        {
-            int wmId = LOWORD(wParam);
-            // Parse the menu selections:
-            switch (wmId)
-            {
-            case IDM_ABOUT:
-                DialogBox(hInst, MAKEINTRESOURCE(IDD_ABOUTBOX), hWnd, About);
-                break;
-            case IDM_EXIT:
-                DestroyWindow(hWnd);
-                break;
-            default:
-                return DefWindowProc(hWnd, message, wParam, lParam);
-            }
-        }
-        break;
-    case WM_PAINT:
-        {
-            PAINTSTRUCT ps;
-            HDC hdc = BeginPaint(hWnd, &ps);
-            // TODO: Add any drawing code that uses hdc here...
-            EndPaint(hWnd, &ps);
-        }
-        break;
-    case WM_DESTROY:
-        PostQuitMessage(0);
-        break;
-    default:
-        return DefWindowProc(hWnd, message, wParam, lParam);
-    }
-    return 0;
-}
-
-// Message handler for about box.
-INT_PTR CALLBACK About(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
-{
-    UNREFERENCED_PARAMETER(lParam);
-    switch (message)
-    {
-    case WM_INITDIALOG:
-        return (INT_PTR)TRUE;
-
-    case WM_COMMAND:
-        if (LOWORD(wParam) == IDOK || LOWORD(wParam) == IDCANCEL)
-        {
-            EndDialog(hDlg, LOWORD(wParam));
-            return (INT_PTR)TRUE;
-        }
-        break;
-    }
-    return (INT_PTR)FALSE;
-}
